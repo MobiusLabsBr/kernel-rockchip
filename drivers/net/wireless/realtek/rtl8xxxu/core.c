@@ -5255,7 +5255,7 @@ static void rtl8xxxu_tx_complete(struct urb *urb)
 }
 
 static void rtl8xxxu_dump_action(struct device *dev,
-				 struct ieee80211_hdr *hdr)
+				 struct ieee80211_hdr *hdr, unsigned int skb_len)
 {
 	struct ieee80211_mgmt *mgmt = (struct ieee80211_mgmt *)hdr;
 	u16 cap, timeout;
@@ -5264,15 +5264,29 @@ static void rtl8xxxu_dump_action(struct device *dev,
 		return;
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(7, 1, 0)
+	if (skb_len < offsetofend(struct ieee80211_mgmt,
+				  u.action.u.addba_resp.action_code))
+		return;
+
 	switch (mgmt->u.action.u.addba_resp.action_code) {
 #else
+	if (skb_len < IEEE80211_MIN_ACTION_SIZE(action_code))
+		return;
+
 	switch (mgmt->u.action.action_code) {
 #endif
 	case WLAN_ACTION_ADDBA_RESP:
 #if LINUX_VERSION_CODE < KERNEL_VERSION(7, 1, 0)
+		if (skb_len < offsetofend(struct ieee80211_mgmt,
+					  u.action.u.addba_resp))
+			break;
+
 		cap = le16_to_cpu(mgmt->u.action.u.addba_resp.capab);
 		timeout = le16_to_cpu(mgmt->u.action.u.addba_resp.timeout);
 #else
+		if (skb_len < IEEE80211_MIN_ACTION_SIZE(addba_resp))
+			break;
+
 		cap = le16_to_cpu(mgmt->u.action.addba_resp.capab);
 		timeout = le16_to_cpu(mgmt->u.action.addba_resp.timeout);
 #endif
@@ -5291,9 +5305,16 @@ static void rtl8xxxu_dump_action(struct device *dev,
 		break;
 	case WLAN_ACTION_ADDBA_REQ:
 #if LINUX_VERSION_CODE < KERNEL_VERSION(7, 1, 0)
+		if (skb_len < offsetofend(struct ieee80211_mgmt,
+					  u.action.u.addba_req))
+			break;
+
 		cap = le16_to_cpu(mgmt->u.action.u.addba_req.capab);
 		timeout = le16_to_cpu(mgmt->u.action.u.addba_req.timeout);
 #else
+		if (skb_len < IEEE80211_MIN_ACTION_SIZE(addba_req))
+			break;
+
 		cap = le16_to_cpu(mgmt->u.action.addba_req.capab);
 		timeout = le16_to_cpu(mgmt->u.action.addba_req.timeout);
 #endif
@@ -5588,7 +5609,7 @@ static void rtl8xxxu_tx(struct ieee80211_hw *hw,
 	}
 
 	if (ieee80211_is_action(hdr->frame_control))
-		rtl8xxxu_dump_action(dev, hdr);
+		rtl8xxxu_dump_action(dev, hdr, skb->len);
 
 	tx_info->rate_driver_data[0] = hw;
 
