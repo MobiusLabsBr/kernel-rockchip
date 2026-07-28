@@ -33,7 +33,25 @@
 	};
 
 	chosen: chosen {
-		bootargs = "earlycon=uart8250,mmio32,0x2ad40000 console=ttyFIQ0 coherent_pool=1m rcupdate.rcu_expedited=1 rcu_nocbs=all";
+		/*
+		 * overlay.index / overlay.xino_auto match what OpenWrt's own
+		 * kernel config does (CONFIG_OVERLAY_FS_INDEX and XINO_AUTO are
+		 * off in target/linux/generic/config-6.12). The BSP defconfig
+		 * enables both, and OpenWrt's fstools never passes these itself,
+		 * so without them the root overlay runs a configuration OpenWrt
+		 * does not test: a persistent work/index/ consulted on every
+		 * lookup of a copied-up file.
+		 *
+		 * The parameter really is "xino_auto", not "xino" - see
+		 * module_param_named(xino_auto, ...) in fs/overlayfs/super.c.
+		 * Check with: cat /sys/module/overlay/parameters/xino_auto
+		 *
+		 * U-Boot merges "bootargs" first and "bootargs_ext" after it
+		 * (bootargs_add_dtb_dtbo() in arch/arm/mach-rockchip/board.c),
+		 * and the dtbo overlay only ever replaces "bootargs_ext", so
+		 * additions made here survive.
+		 */
+		bootargs = "earlycon=uart8250,mmio32,0x2ad40000 console=ttyFIQ0 coherent_pool=1m rcupdate.rcu_expedited=1 rcu_nocbs=all overlay.index=0 overlay.xino_auto=0";
 		bootargs_ext = "root=/dev/sda8 rw rootfstype=ext4 rootflags=discard consoleblank=0";
 	};
 
