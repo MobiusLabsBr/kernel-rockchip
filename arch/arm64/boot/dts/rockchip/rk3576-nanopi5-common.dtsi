@@ -47,12 +47,19 @@
 		 * Check with: cat /sys/module/overlay/parameters/xino_auto
 		 *
 		 * U-Boot merges "bootargs" first and "bootargs_ext" after it
-		 * (bootargs_add_dtb_dtbo() in arch/arm/mach-rockchip/board.c),
-		 * and the dtbo overlay only ever replaces "bootargs_ext", so
-		 * additions made here survive.
+		 * (bootargs_add_dtb_dtbo() in arch/arm/mach-rockchip/board.c).
+		 *
+		 * bootargs_ext used to be overwritten at boot by the dtbo
+		 * partition, whose single fragment set root= and data= for eMMC
+		 * (the value below). That partition is unsigned, so under secure
+		 * boot it was a free hand on the kernel command line; U-Boot no
+		 * longer applies it (CONFIG_OF_LIBFDT_OVERLAY is off) and the R76S
+		 * values live here instead, inside the signed resource image.
+		 * "root=/dev/sda8" was the NanoPi M5's UFS root and never applied
+		 * to this board.
 		 */
 		bootargs = "earlycon=uart8250,mmio32,0x2ad40000 console=ttyFIQ0 coherent_pool=1m rcupdate.rcu_expedited=1 rcu_nocbs=all overlay.index=0 overlay.xino_auto=0";
-		bootargs_ext = "root=/dev/sda8 rw rootfstype=ext4 rootflags=discard consoleblank=0";
+		bootargs_ext = "root=/dev/mmcblk2p8 rw rootfstype=ext4 rootflags=discard data=/dev/mmcblk2p9 consoleblank=0 cgroup_enable=cpuset cgroup_memory=1 cgroup_enable=memory swapaccount=1";
 	};
 
 	adc0_keys: adc0-keys {
