@@ -70,6 +70,36 @@
 		 * "slot B's rootfs is bad" is the most likely thing an update gets
 		 * wrong, so this is not optional.
 		 *
+		 * fstools_partname_fallback_scan=1 is what lets fstools find the
+		 * rootfs_data partition at all once root= became a PARTUUID.
+		 *
+		 * partname_volume_find() (fstools libfstools/partname.c) reads root=
+		 * from the command line and, if it starts with '/', restricts its
+		 * PARTNAME scan to that device's partitions. If root= is present but
+		 * is NOT a /dev path - which is exactly what A/B produces, since
+		 * ab_update_root_partition() emits root=PARTUUID=<slot's GUID> - it
+		 * bails out with "devices with root= params must explicitly opt into
+		 * this fallback" and returns NULL.
+		 *
+		 * mount_root then takes its "if (!data)" branch: it remounts / as
+		 * READ-WRITE and never sets up an overlay. Observed on the first A/B
+		 * boot - "mount_root: mounting /dev/root with options" followed by
+		 * "EXT4-fs (mmcblk2p8): re-mounted", no format of rootfs_data and no
+		 * overlay. Silent, and it costs both the read-only root that makes
+		 * this base system power-cut safe (patch 06) and the separation
+		 * between the rootfs slot and the config it is supposed to outlive.
+		 *
+		 * The flag re-enables the by-name scan. It widens it to every block
+		 * device rather than just the eMMC, so in principle an attached disk
+		 * with a GPT partition named "rootfs_data" could be claimed instead.
+		 * Accepted deliberately: at preinit the USB storage modules are not
+		 * loaded yet, so the eMMC is the only block device present, and the
+		 * alternative - having U-Boot emit root=/dev/mmcblk2p8 so the scan
+		 * stays device-local - would hardcode a Linux device name in the
+		 * bootloader, where getting it wrong does not degrade the overlay but
+		 * makes the board unbootable. /lib/preinit/79_grow_rootfs_data warns
+		 * if this flag ever goes missing while root= is a PARTUUID.
+		 *
 		 * fstools_overlay_fstype=ext4 pins the overlay filesystem. rootfs_data
 		 * is now the last partition and is grown to the end of the eMMC, and
 		 * use_f2fs() in fstools' libfstools/common.c picks f2fs for any block
@@ -93,7 +123,7 @@
 		 * live GPT. Keeping it means this DTSI still boots a non-A/B image.
 		 * "rootfstype=" and "rootflags=" do not contain "root=" and survive.
 		 */
-		bootargs = "earlycon=uart8250,mmio32,0x2ad40000 console=ttyFIQ0 coherent_pool=1m rcupdate.rcu_expedited=1 rcu_nocbs=all overlay.index=0 overlay.xino_auto=0 panic=10 fstools_overlay_fstype=ext4";
+		bootargs = "earlycon=uart8250,mmio32,0x2ad40000 console=ttyFIQ0 coherent_pool=1m rcupdate.rcu_expedited=1 rcu_nocbs=all overlay.index=0 overlay.xino_auto=0 panic=10 fstools_overlay_fstype=ext4 fstools_partname_fallback_scan=1";
 		bootargs_ext = "root=/dev/mmcblk2p8 rw rootfstype=ext4 rootflags=discard data=/dev/mmcblk2p10 consoleblank=0 cgroup_enable=cpuset cgroup_memory=1 cgroup_enable=memory swapaccount=1";
 	};
 
