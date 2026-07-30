@@ -70,35 +70,34 @@
 		 * "slot B's rootfs is bad" is the most likely thing an update gets
 		 * wrong, so this is not optional.
 		 *
-		 * fstools_partname_fallback_scan=1 is what lets fstools find the
-		 * rootfs_data partition at all once root= became a PARTUUID.
+		 * root= has to stay a /dev path, or the overlay does not come up.
 		 *
-		 * partname_volume_find() (fstools libfstools/partname.c) reads root=
-		 * from the command line and, if it starts with '/', restricts its
-		 * PARTNAME scan to that device's partitions. If root= is present but
-		 * is NOT a /dev path - which is exactly what A/B produces, since
-		 * ab_update_root_partition() emits root=PARTUUID=<slot's GUID> - it
-		 * bails out with "devices with root= params must explicitly opt into
-		 * this fallback" and returns NULL.
+		 * fstools' partname volume driver (libfstools/partname.c) derives the
+		 * disk to scan for the overlay partition by stripping the partition
+		 * number off root=, and refuses to scan at all when root= is not a
+		 * device path. Under A/B, ab_update_root_partition() replaces this
+		 * root= with root=PARTUUID=<the booted slot's GUID> - and then
+		 * volume_find("rootfs_data") returns NULL, mount_root takes its
+		 * "if (!data)" branch, remounts / READ-WRITE and creates no overlay.
+		 * Observed twice on hardware, silently: the board boots and works.
+		 * It costs the read-only root that makes this base system power-cut
+		 * safe (patch 06) and the separation between a rootfs slot and the
+		 * config meant to outlive it.
 		 *
-		 * mount_root then takes its "if (!data)" branch: it remounts / as
-		 * READ-WRITE and never sets up an overlay. Observed on the first A/B
-		 * boot - "mount_root: mounting /dev/root with options" followed by
-		 * "EXT4-fs (mmcblk2p8): re-mounted", no format of rootfs_data and no
-		 * overlay. Silent, and it costs both the read-only root that makes
-		 * this base system power-cut safe (patch 06) and the separation
-		 * between the rootfs slot and the config it is supposed to outlive.
+		 * The fix is on the U-Boot side - CONFIG_LINUX_ROOTFS_DEV_PREFIX
+		 * makes it emit root=/dev/mmcblk2p<slot's partition> instead of the
+		 * PARTUUID, which is equally slot-correct and restores the exact code
+		 * path that worked before A/B. Note partname only uses root= to find
+		 * the DISK, so what matters here is the form, not which partition.
 		 *
-		 * The flag re-enables the by-name scan. It widens it to every block
-		 * device rather than just the eMMC, so in principle an attached disk
-		 * with a GPT partition named "rootfs_data" could be claimed instead.
-		 * Accepted deliberately: at preinit the USB storage modules are not
-		 * loaded yet, so the eMMC is the only block device present, and the
-		 * alternative - having U-Boot emit root=/dev/mmcblk2p8 so the scan
-		 * stays device-local - would hardcode a Linux device name in the
-		 * bootloader, where getting it wrong does not degrade the overlay but
-		 * makes the board unbootable. /lib/preinit/79_grow_rootfs_data warns
-		 * if this flag ever goes missing while root= is a PARTUUID.
+		 * fstools_partname_fallback_scan=1, which is meant to let the driver
+		 * scan every block device when root= is not a device path, was tried
+		 * first and did NOT work - the reason was never established. It is
+		 * deliberately not set: leaving it in would look like a safety net
+		 * that has been shown not to catch anything.
+		 *
+		 * /lib/preinit/81_verify_overlay checks the outcome after mount_root
+		 * and logs loudly if the overlay is missing, whatever the cause.
 		 *
 		 * fstools_overlay_fstype=ext4 pins the overlay filesystem. rootfs_data
 		 * is now the last partition and is grown to the end of the eMMC, and
@@ -116,14 +115,17 @@
 		 * local_mount_overlay() returns immediately because of
 		 * /etc/.overlayfs.disabled, so the initramfs never touches the volume.
 		 *
-		 * root= stays here even though U-Boot strips it: under
+		 * The root= below is stripped and replaced at boot: under
 		 * CONFIG_ANDROID_AB, bootargs_add_dtb_dtbo() merges this string with
 		 * env_update_filter(..., "root=") and ab_update_root_partition() then
-		 * re-adds root=PARTUUID=<the booted slot's rootfs GUID>, read from the
-		 * live GPT. Keeping it means this DTSI still boots a non-A/B image.
-		 * "rootfstype=" and "rootflags=" do not contain "root=" and survive.
+		 * re-adds the booted slot's own root=, which with
+		 * CONFIG_LINUX_ROOTFS_DEV_PREFIX="/dev/mmcblk2p" is /dev/mmcblk2p8 for
+		 * slot A and /dev/mmcblk2p9 for slot B. The value written here is what
+		 * a non-A/B build of this DTSI still boots with, and it deliberately
+		 * matches slot A. "rootfstype=" and "rootflags=" do not contain
+		 * "root=" and survive the filter.
 		 */
-		bootargs = "earlycon=uart8250,mmio32,0x2ad40000 console=ttyFIQ0 coherent_pool=1m rcupdate.rcu_expedited=1 rcu_nocbs=all overlay.index=0 overlay.xino_auto=0 panic=10 fstools_overlay_fstype=ext4 fstools_partname_fallback_scan=1";
+		bootargs = "earlycon=uart8250,mmio32,0x2ad40000 console=ttyFIQ0 coherent_pool=1m rcupdate.rcu_expedited=1 rcu_nocbs=all overlay.index=0 overlay.xino_auto=0 panic=10 fstools_overlay_fstype=ext4";
 		bootargs_ext = "root=/dev/mmcblk2p8 rw rootfstype=ext4 rootflags=discard data=/dev/mmcblk2p10 consoleblank=0 cgroup_enable=cpuset cgroup_memory=1 cgroup_enable=memory swapaccount=1";
 	};
 
