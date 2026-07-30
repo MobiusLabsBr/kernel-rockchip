@@ -58,7 +58,7 @@
 		 * "root=/dev/sda8" was the NanoPi M5's UFS root and never applied
 		 * to this board.
 		 *
-		 * panic=10 is what makes A/B rollback work at all. U-Boot's
+		 * panic=3 is what makes A/B rollback work at all. U-Boot's
 		 * ab_decrease_tries() (arch/arm/mach-rockchip/board.c) runs once per
 		 * boot *attempt*, so a slot that hangs instead of rebooting never
 		 * advances the counter and never rolls back. Two things hang without
@@ -69,6 +69,12 @@
 		 *     reboots after N seconds instead.
 		 * "slot B's rootfs is bad" is the most likely thing an update gets
 		 * wrong, so this is not optional.
+		 *
+		 * 3 seconds, not 10. This delay is paid on *every* failed attempt, and
+		 * it was measured at ~10.4 s of each ~48 s cycle on a slot with a
+		 * destroyed rootfs (2026-07-30). Nothing reads the console in that
+		 * window that is not already being logged over UART, so the only thing
+		 * a longer delay buys is downtime before the rollback.
 		 *
 		 * root= has to be a /dev path, or the overlay does not come up.
 		 *
@@ -131,7 +137,7 @@
 		 * matches slot A. "rootfstype=" and "rootflags=" do not contain
 		 * "root=" and survive the filter.
 		 */
-		bootargs = "earlycon=uart8250,mmio32,0x2ad40000 console=ttyFIQ0 coherent_pool=1m rcupdate.rcu_expedited=1 rcu_nocbs=all overlay.index=0 overlay.xino_auto=0 panic=10 fstools_overlay_fstype=ext4";
+		bootargs = "earlycon=uart8250,mmio32,0x2ad40000 console=ttyFIQ0 coherent_pool=1m rcupdate.rcu_expedited=1 rcu_nocbs=all overlay.index=0 overlay.xino_auto=0 panic=3 fstools_overlay_fstype=ext4";
 		bootargs_ext = "root=/dev/mmcblk2p8 rw rootfstype=ext4 rootflags=discard data=/dev/mmcblk2p10 consoleblank=0 cgroup_enable=cpuset cgroup_memory=1 cgroup_enable=memory swapaccount=1";
 	};
 
