@@ -12,6 +12,23 @@
 	model = "FriendlyElec NanoPi M5";
 	compatible = "friendlyelec,nanopi-m5", "rockchip,rk3576";
 
+	aliases {
+		/*
+		 * Same as rev02: wake OpenWrt's boot-stage LED indication, which
+		 * /etc/diag.sh resolves through get_dt_led() and skips entirely
+		 * when these aliases are absent. led-boot gives a 100/100 ms blink
+		 * during preinit, and "set_state done" sets an explicit heartbeat
+		 * once the A/B slot is committed.
+		 *
+		 * Both revisions are built and shipped in resource.img, so this is
+		 * here to stop a rev01 board behaving differently. Deliberately no
+		 * led-running - see the longer comment in rk3576-nanopi5-rev02.dts.
+		 */
+		led-boot = &sys_led;
+		led-failsafe = &sys_led;
+		led-upgrade = &sys_led;
+	};
+
 	gpio_keys: gpio-keys {
 		compatible = "gpio-keys";
 		pinctrl-names = "default";
@@ -32,7 +49,16 @@
 		sys_led: led-0 {
 			gpios = <&gpio2 RK_PB3 GPIO_ACTIVE_HIGH>;
 			label = "sys_led";
-			linux,default-trigger = "heartbeat";
+			/*
+			 * "timer" (500/500 ms), not "heartbeat", and only for the
+			 * gap between leds-gpio probing (~4.2 s) and preinit
+			 * reaching set_state (~7.8 s). A heartbeat here reads as
+			 * "up and idle" during what is still early boot; an even
+			 * blink reads as "busy", which is what is true. preinit
+			 * then takes it to 100/100 ms and the committed state is
+			 * the heartbeat, both set from /etc/diag.sh.
+			 */
+			linux,default-trigger = "timer";
 			pinctrl-names = "default";
 			pinctrl-0 = <&sys_led_pin>;
 		};
