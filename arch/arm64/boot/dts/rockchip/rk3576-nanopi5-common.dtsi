@@ -70,43 +70,49 @@
 		 * "slot B's rootfs is bad" is the most likely thing an update gets
 		 * wrong, so this is not optional.
 		 *
-		 * root= has to stay a /dev path, or the overlay does not come up.
+		 * root= has to be a /dev path, or the overlay does not come up.
 		 *
 		 * fstools' partname volume driver (libfstools/partname.c) derives the
 		 * disk to scan for the overlay partition by stripping the partition
 		 * number off root=, and refuses to scan at all when root= is not a
-		 * device path. Under A/B, ab_update_root_partition() replaces this
-		 * root= with root=PARTUUID=<the booted slot's GUID> - and then
+		 * device path. Under A/B, ab_update_root_partition() would replace this
+		 * root= with root=PARTUUID=<the booted slot's GUID>, and then
 		 * volume_find("rootfs_data") returns NULL, mount_root takes its
-		 * "if (!data)" branch, remounts / READ-WRITE and creates no overlay.
-		 * Observed twice on hardware, silently: the board boots and works.
-		 * It costs the read-only root that makes this base system power-cut
-		 * safe (patch 06) and the separation between a rootfs slot and the
-		 * config meant to outlive it.
+		 * "if (!data)" branch, remounts / READ-WRITE and creates no overlay -
+		 * silently; the board boots and works. That costs the read-only root
+		 * that makes this base system power-cut safe (patch 06) and the
+		 * separation between a rootfs slot and the config meant to outlive it.
 		 *
-		 * The fix is on the U-Boot side - CONFIG_LINUX_ROOTFS_DEV_PREFIX
-		 * makes it emit root=/dev/mmcblk2p<slot's partition> instead of the
-		 * PARTUUID, which is equally slot-correct and restores the exact code
-		 * path that worked before A/B. Note partname only uses root= to find
-		 * the DISK, so what matters here is the form, not which partition.
+		 * CONFIG_LINUX_ROOTFS_DEV_PREFIX in the U-Boot defconfig makes it emit
+		 * root=/dev/mmcblk2p<slot's partition> instead, which is equally
+		 * slot-correct. partname uses root= only to find the DISK, so the form
+		 * matters and the partition number does not.
+		 *
+		 * That was necessary but NOT sufficient: the overlay stayed broken
+		 * until the partition grow also moved out of preinit. Any whole-disk
+		 * partition re-read destroys the PARTNAME the kernel exposes, which is
+		 * what partname matches on. The grow now runs from
+		 * /etc/init.d/grow-rootfs-data, after the overlay is mounted - see that
+		 * script's header for the mechanism and the evidence.
 		 *
 		 * fstools_partname_fallback_scan=1, which is meant to let the driver
 		 * scan every block device when root= is not a device path, was tried
-		 * first and did NOT work - the reason was never established. It is
-		 * deliberately not set: leaving it in would look like a safety net
-		 * that has been shown not to catch anything.
+		 * first and did not help - because the real second cause was the
+		 * PARTNAME loss above, which no amount of scanning can see through. It
+		 * is deliberately not set.
 		 *
-		 * /lib/preinit/81_verify_overlay checks the outcome after mount_root
-		 * and logs loudly if the overlay is missing, whatever the cause.
+		 * /lib/preinit/81_verify_overlay checks the outcome after mount_root and
+		 * logs loudly if the overlay is missing, whatever the cause. It is what
+		 * caught this.
 		 *
-		 * fstools_overlay_fstype=ext4 pins the overlay filesystem. rootfs_data
-		 * is now the last partition and is grown to the end of the eMMC, and
-		 * use_f2fs() in fstools' libfstools/common.c picks f2fs for any block
-		 * volume over 100 MB - which cannot be grown while mounted. ext4 can be
-		 * resized online, so a unit whose partition and filesystem ever
-		 * disagree is repaired by /lib/preinit/79_grow_rootfs_data on the next
-		 * boot instead of needing a re-flash. It also journals, which matters
-		 * more now that all writable data lives in this one volume.
+		 * fstools_overlay_fstype=ext4 pins the overlay filesystem, and it is
+		 * REQUIRED, not a preference. rootfs_data is the last partition and is
+		 * grown to the end of the eMMC while it is already mounted, so its
+		 * filesystem has to be growable online - and f2fs cannot be grown
+		 * while mounted at all. use_f2fs() in fstools' libfstools/common.c
+		 * would otherwise pick f2fs for any block volume over 100 MB. ext4
+		 * also journals, which matters more now that all writable data lives
+		 * in this one volume.
 		 *
 		 * data= does NOT name a "data" partition - there no longer is one. It
 		 * names rootfs_data (p10), and its only job is to make the vendor
