@@ -101,6 +101,27 @@
 		 * /etc/init.d/grow-rootfs-data, after the overlay is mounted - see that
 		 * script's header for the mechanism and the evidence.
 		 *
+		 * There is no console= and no earlycon= here. Both used to be, and
+		 * they are the kernel half of "no UART on a shipped unit" - see
+		 * patch/README.md record 14. The console is named by CONFIG_CMDLINE
+		 * instead, which early_init_dt_scan_chosen() puts in FRONT of this
+		 * string (drivers/of/fdt.c:1203), because this property lives in the
+		 * signed resource image and a build-time switch cannot edit it:
+		 *
+		 *   default build          CONFIG_CMDLINE="console=ttynull"
+		 *   ENABLE_UART_CONSOLE=1  arch/arm64/configs/uart-console.config
+		 *                          replaces it with earlycon + console=ttyFIQ0
+		 *
+		 * ttynull, not "no console= at all": with nothing named, the VT driver
+		 * becomes the default console and every printk lands on HDMI, which is
+		 * not what was there before. CONFIG_NULL_TTY gives /dev/console a
+		 * driver that discards, so userspace that writes to it still works.
+		 *
+		 * earlycon= is the one that has to be removed rather than merely
+		 * pointed elsewhere: it maps 0x2ad40000 itself and writes to it
+		 * directly, with no driver and no DT node involved, so no amount of
+		 * disabling in the device tree or the config would have stopped it.
+		 *
 		 * fstools_partname_fallback_scan=1, which is meant to let the driver
 		 * scan every block device when root= is not a device path, was tried
 		 * first and did not help - because the real second cause was the
@@ -137,7 +158,7 @@
 		 * matches slot A. "rootfstype=" and "rootflags=" do not contain
 		 * "root=" and survive the filter.
 		 */
-		bootargs = "earlycon=uart8250,mmio32,0x2ad40000 console=ttyFIQ0 coherent_pool=1m rcupdate.rcu_expedited=1 rcu_nocbs=all overlay.index=0 overlay.xino_auto=0 panic=3 fstools_overlay_fstype=ext4";
+		bootargs = "coherent_pool=1m rcupdate.rcu_expedited=1 rcu_nocbs=all overlay.index=0 overlay.xino_auto=0 panic=3 fstools_overlay_fstype=ext4";
 		bootargs_ext = "root=/dev/mmcblk2p8 rw rootfstype=ext4 rootflags=discard data=/dev/mmcblk2p10 consoleblank=0 cgroup_enable=cpuset cgroup_memory=1 cgroup_enable=memory swapaccount=1";
 	};
 
