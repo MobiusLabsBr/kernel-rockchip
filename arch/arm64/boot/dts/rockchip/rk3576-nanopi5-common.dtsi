@@ -39,9 +39,15 @@
 		 * partition (CONFIG_OF_LIBFDT_OVERLAY is off), and merges "bootargs"
 		 * first and "bootargs_ext" after it (bootargs_add_dtb_dtbo()).
 		 *
+		 * No console= or earlycon=: the console is named by CONFIG_CMDLINE,
+		 * which the kernel puts in front of this string, so that the
+		 * ENABLE_UART_CONSOLE build switch can change it -
+		 * "console=ttynull" by default, earlycon and console=ttyFIQ0 from
+		 * arch/arm64/configs/uart-console.config.
+		 *
 		 * bootargs_ext is what the dtbo set for booting from the eMMC.
 		 */
-		bootargs = "earlycon=uart8250,mmio32,0x2ad40000 console=ttyFIQ0 coherent_pool=1m rcupdate.rcu_expedited=1 rcu_nocbs=all";
+		bootargs = "coherent_pool=1m rcupdate.rcu_expedited=1 rcu_nocbs=all";
 		bootargs_ext = "root=/dev/mmcblk2p8 rw rootfstype=ext4 rootflags=discard data=/dev/mmcblk2p9 consoleblank=0";
 	};
 
