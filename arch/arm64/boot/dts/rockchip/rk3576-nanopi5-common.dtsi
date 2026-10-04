@@ -45,10 +45,27 @@
 		 * "console=ttynull" by default, earlycon and console=ttyFIQ0 from
 		 * arch/arm64/configs/uart-console.config.
 		 *
-		 * bootargs_ext is what the dtbo set for booting from the eMMC.
+		 * panic=3: U-Boot counts A/B tries per boot attempt, so a slot that
+		 * hangs never rolls back. A kernel panic and an initramfs that cannot
+		 * mount the root (its panic() honours this parameter) both reboot
+		 * after 3 s instead of waiting forever.
+		 *
+		 * fstools_overlay_fstype=ext4: rootfs_data is grown to the end of the
+		 * eMMC while mounted, and f2fs - which fstools would otherwise pick
+		 * for a volume over 100 MB - cannot be grown online.
+		 *
+		 * root= is replaced at boot with the booted slot's partition
+		 * (ab_update_root_partition(), CONFIG_LINUX_ROOTFS_DEV_PREFIX). It
+		 * must stay a /dev path: fstools finds the disk holding rootfs_data
+		 * from it.
+		 *
+		 * data= names rootfs_data (p10). Its only job is to make the vendor
+		 * initramfs mount the root read-only, unresized and unchecked;
+		 * /etc/.overlayfs.disabled keeps it from touching rootfs_data, which
+		 * OpenWrt's fstools mounts as the overlay.
 		 */
-		bootargs = "coherent_pool=1m rcupdate.rcu_expedited=1 rcu_nocbs=all";
-		bootargs_ext = "root=/dev/mmcblk2p8 rw rootfstype=ext4 rootflags=discard data=/dev/mmcblk2p9 consoleblank=0";
+		bootargs = "coherent_pool=1m rcupdate.rcu_expedited=1 rcu_nocbs=all panic=3 fstools_overlay_fstype=ext4";
+		bootargs_ext = "root=/dev/mmcblk2p8 rw rootfstype=ext4 rootflags=discard data=/dev/mmcblk2p10 consoleblank=0";
 	};
 
 	adc0_keys: adc0-keys {
