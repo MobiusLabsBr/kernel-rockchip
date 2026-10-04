@@ -15,6 +15,21 @@
 	aliases {
 		ethernet0 = &r8125_b;
 		ethernet1 = &r8125_a;
+
+		/*
+		 * OpenWrt's boot-stage LED indication: /etc/diag.sh resolves these
+		 * aliases with get_dt_led() and does nothing without them. preinit
+		 * blinks led-boot at 100/100 ms; "set_state done" (/etc/init.d/done,
+		 * and ab-commit once the slot is committed) gets an explicit
+		 * heartbeat from our /etc/diag.sh, rather than upstream's
+		 * restore_trigger, which would go back to the "timer" default below.
+		 *
+		 * No led-running: diag.sh would turn it solid on "done" and lose the
+		 * heartbeat.
+		 */
+		led-boot = &sys_led;
+		led-failsafe = &sys_led;
+		led-upgrade = &sys_led;
 	};
 
 	gpio_keys: gpio-keys {
@@ -37,7 +52,16 @@
 		sys_led: led-0 {
 			gpios = <&gpio2 RK_PB3 GPIO_ACTIVE_HIGH>;
 			label = "sys_led";
-			linux,default-trigger = "heartbeat";
+			/*
+			 * "timer" (500/500 ms), not "heartbeat", and only for the
+			 * gap between leds-gpio probing (~4.2 s) and preinit
+			 * reaching set_state (~7.8 s). A heartbeat here reads as
+			 * "up and idle" during what is still early boot; an even
+			 * blink reads as "busy", which is what is true. preinit
+			 * then takes it to 100/100 ms and the committed state is
+			 * the heartbeat, both set from /etc/diag.sh.
+			 */
+			linux,default-trigger = "timer";
 			pinctrl-names = "default";
 			pinctrl-0 = <&sys_led_pin>;
 		};
