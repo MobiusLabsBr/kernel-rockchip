@@ -57,8 +57,9 @@
 		 * root= is replaced at boot with the booted slot's partition
 		 * (ab_update_root_partition(), CONFIG_LINUX_ROOTFS_DEV_PREFIX). It
 		 * must stay a /dev path: fstools finds the disk holding rootfs_data
-		 * from it. The initramfs maps the slot through dm-verity
-		 * and takes the filesystem type from its signed verity.conf.
+		 * from it. The initramfs maps the slot through dm-verity (and
+		 * dm-crypt) and takes the filesystem type from its signed
+		 * verity.conf.
 		 *
 		 * data= names rootfs_data (p10). Its only job is to make the vendor
 		 * initramfs mount the root read-only, unresized and unchecked;
