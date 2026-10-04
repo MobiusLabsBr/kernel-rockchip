@@ -57,7 +57,8 @@
 		 * root= is replaced at boot with the booted slot's partition
 		 * (ab_update_root_partition(), CONFIG_LINUX_ROOTFS_DEV_PREFIX). It
 		 * must stay a /dev path: fstools finds the disk holding rootfs_data
-		 * from it.
+		 * from it. The initramfs maps the slot through dm-verity
+		 * and takes the filesystem type from its signed verity.conf.
 		 *
 		 * data= names rootfs_data (p10). Its only job is to make the vendor
 		 * initramfs mount the root read-only, unresized and unchecked;
@@ -65,7 +66,7 @@
 		 * OpenWrt's fstools mounts as the overlay.
 		 */
 		bootargs = "coherent_pool=1m rcupdate.rcu_expedited=1 rcu_nocbs=all panic=3 fstools_overlay_fstype=ext4";
-		bootargs_ext = "root=/dev/mmcblk2p8 rw rootfstype=ext4 rootflags=discard data=/dev/mmcblk2p10 consoleblank=0";
+		bootargs_ext = "root=/dev/mmcblk2p8 data=/dev/mmcblk2p10 consoleblank=0";
 	};
 
 	adc0_keys: adc0-keys {
