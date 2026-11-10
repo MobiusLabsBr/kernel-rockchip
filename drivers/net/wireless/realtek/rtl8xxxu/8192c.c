@@ -13,24 +13,8 @@
  * additional 8xxx chips like the 8192cu, 8188cus, etc.
  */
 
-#include <linux/init.h>
-#include <linux/kernel.h>
-#include <linux/sched.h>
-#include <linux/errno.h>
-#include <linux/slab.h>
-#include <linux/module.h>
-#include <linux/spinlock.h>
-#include <linux/list.h>
-#include <linux/usb.h>
-#include <linux/netdevice.h>
-#include <linux/etherdevice.h>
-#include <linux/ethtool.h>
-#include <linux/wireless.h>
-#include <linux/firmware.h>
-#include <linux/moduleparam.h>
-#include <net/mac80211.h>
+#include "regs.h"
 #include "rtl8xxxu.h"
-#include "rtl8xxxu_regs.h"
 
 #ifdef CONFIG_RTL8XXXU_UNTESTED
 static struct rtl8xxxu_power_base rtl8192c_power_base = {
@@ -77,7 +61,33 @@ static struct rtl8xxxu_power_base rtl8188r_power_base = {
 	.reg_0868 = 0x00020204,
 };
 
-static struct rtl8xxxu_rfregval rtl8192cu_radioa_2t_init_table[] = {
+static const struct rtl8xxxu_reg8val rtl8192cu_mac_init_table[] = {
+	{0x420, 0x80}, {0x423, 0x00}, {0x430, 0x00}, {0x431, 0x00},
+	{0x432, 0x00}, {0x433, 0x01}, {0x434, 0x04}, {0x435, 0x05},
+	{0x436, 0x06}, {0x437, 0x07}, {0x438, 0x00}, {0x439, 0x00},
+	{0x43a, 0x00}, {0x43b, 0x01}, {0x43c, 0x04}, {0x43d, 0x05},
+	{0x43e, 0x06}, {0x43f, 0x07}, {0x440, 0x5d}, {0x441, 0x01},
+	{0x442, 0x00}, {0x444, 0x15}, {0x445, 0xf0}, {0x446, 0x0f},
+	{0x447, 0x00}, {0x458, 0x41}, {0x459, 0xa8}, {0x45a, 0x72},
+	{0x45b, 0xb9}, {0x460, 0x66}, {0x461, 0x66}, {0x462, 0x08},
+	{0x463, 0x03}, {0x4c8, 0xff}, {0x4c9, 0x08}, {0x4cc, 0xff},
+	{0x4cd, 0xff}, {0x4ce, 0x01}, {0x500, 0x26}, {0x501, 0xa2},
+	{0x502, 0x2f}, {0x503, 0x00}, {0x504, 0x28}, {0x505, 0xa3},
+	{0x506, 0x5e}, {0x507, 0x00}, {0x508, 0x2b}, {0x509, 0xa4},
+	{0x50a, 0x5e}, {0x50b, 0x00}, {0x50c, 0x4f}, {0x50d, 0xa4},
+	{0x50e, 0x00}, {0x50f, 0x00}, {0x512, 0x1c}, {0x514, 0x0a},
+	{0x515, 0x10}, {0x516, 0x0a}, {0x517, 0x10}, {0x51a, 0x16},
+	{0x524, 0x0f}, {0x525, 0x4f}, {0x546, 0x40}, {0x547, 0x00},
+	{0x550, 0x10}, {0x551, 0x10}, {0x559, 0x02}, {0x55a, 0x02},
+	{0x55d, 0xff}, {0x605, 0x30}, {0x608, 0x0e}, {0x609, 0x2a},
+	{0x652, 0x20}, {0x652, 0x20}, {0x63c, 0x08}, {0x63d, 0x08},
+	{0x63e, 0x0c}, {0x63f, 0x0c}, {0x66e, 0x05}, {0x700, 0x21},
+	{0x701, 0x43}, {0x702, 0x65}, {0x703, 0x87}, {0x708, 0x21},
+	{0x709, 0x43}, {0x70a, 0x65}, {0x70b, 0x87},
+	{0xffff, 0xff},
+};
+
+static const struct rtl8xxxu_rfregval rtl8192cu_radioa_2t_init_table[] = {
 	{0x00, 0x00030159}, {0x01, 0x00031284},
 	{0x02, 0x00098000}, {0x03, 0x00018c63},
 	{0x04, 0x000210e7}, {0x09, 0x0002044f},
@@ -152,7 +162,7 @@ static struct rtl8xxxu_rfregval rtl8192cu_radioa_2t_init_table[] = {
 	{0xff, 0xffffffff}
 };
 
-static struct rtl8xxxu_rfregval rtl8192cu_radiob_2t_init_table[] = {
+static const struct rtl8xxxu_rfregval rtl8192cu_radiob_2t_init_table[] = {
 	{0x00, 0x00030159}, {0x01, 0x00031284},
 	{0x02, 0x00098000}, {0x03, 0x00018c63},
 	{0x04, 0x000210e7}, {0x09, 0x0002044f},
@@ -176,7 +186,7 @@ static struct rtl8xxxu_rfregval rtl8192cu_radiob_2t_init_table[] = {
 	{0xff, 0xffffffff}
 };
 
-static struct rtl8xxxu_rfregval rtl8192cu_radioa_1t_init_table[] = {
+static const struct rtl8xxxu_rfregval rtl8192cu_radioa_1t_init_table[] = {
 	{0x00, 0x00030159}, {0x01, 0x00031284},
 	{0x02, 0x00098000}, {0x03, 0x00018c63},
 	{0x04, 0x000210e7}, {0x09, 0x0002044f},
@@ -251,7 +261,7 @@ static struct rtl8xxxu_rfregval rtl8192cu_radioa_1t_init_table[] = {
 	{0xff, 0xffffffff}
 };
 
-static struct rtl8xxxu_rfregval rtl8188ru_radioa_1t_highpa_table[] = {
+static const struct rtl8xxxu_rfregval rtl8188ru_radioa_1t_highpa_table[] = {
 	{0x00, 0x00030159}, {0x01, 0x00031284},
 	{0x02, 0x00098000}, {0x03, 0x00018c63},
 	{0x04, 0x000210e7}, {0x09, 0x0002044f},
@@ -326,9 +336,67 @@ static struct rtl8xxxu_rfregval rtl8188ru_radioa_1t_highpa_table[] = {
 	{0xff, 0xffffffff}
 };
 
+static int rtl8192cu_identify_chip(struct rtl8xxxu_priv *priv)
+{
+	struct device *dev = &priv->udev->dev;
+	u32 val32, bonding, sys_cfg, vendor;
+	int ret = 0;
+
+	sys_cfg = rtl8xxxu_read32(priv, REG_SYS_CFG);
+	priv->chip_cut = u32_get_bits(sys_cfg, SYS_CFG_CHIP_VERSION_MASK);
+	if (sys_cfg & SYS_CFG_TRP_VAUX_EN) {
+		dev_info(dev, "Unsupported test chip\n");
+		ret = -ENOTSUPP;
+		goto out;
+	}
+
+	if (sys_cfg & SYS_CFG_TYPE_ID) {
+		bonding = rtl8xxxu_read32(priv, REG_HPON_FSM);
+		bonding &= HPON_FSM_BONDING_MASK;
+		if (bonding == HPON_FSM_BONDING_1T2R) {
+			strscpy(priv->chip_name, "8191CU", sizeof(priv->chip_name));
+			priv->tx_paths = 1;
+			priv->usb_interrupts = 1;
+			priv->rtl_chip = RTL8191C;
+		} else {
+			strscpy(priv->chip_name, "8192CU", sizeof(priv->chip_name));
+			priv->tx_paths = 2;
+			priv->usb_interrupts = 0;
+			priv->rtl_chip = RTL8192C;
+		}
+		priv->rf_paths = 2;
+		priv->rx_paths = 2;
+	} else {
+		strscpy(priv->chip_name, "8188CU", sizeof(priv->chip_name));
+		priv->rf_paths = 1;
+		priv->rx_paths = 1;
+		priv->tx_paths = 1;
+		priv->rtl_chip = RTL8188C;
+		priv->usb_interrupts = 0;
+	}
+	priv->has_wifi = 1;
+
+	vendor = sys_cfg & SYS_CFG_VENDOR_ID;
+	rtl8xxxu_identify_vendor_1bit(priv, vendor);
+
+	val32 = rtl8xxxu_read32(priv, REG_GPIO_OUTSTS);
+	priv->rom_rev = u32_get_bits(val32, GPIO_RF_RL_ID);
+
+	rtl8xxxu_config_endpoints_sie(priv);
+
+	/*
+	 * Fallback for devices that do not provide REG_NORMAL_SIE_EP_TX
+	 */
+	if (!priv->ep_tx_count)
+		ret = rtl8xxxu_config_endpoints_no_sie(priv);
+
+out:
+	return ret;
+}
+
 static int rtl8192cu_load_firmware(struct rtl8xxxu_priv *priv)
 {
-	char *fw_name;
+	const char *fw_name;
 	int ret;
 
 	if (!priv->vendor_umc)
@@ -346,7 +414,6 @@ static int rtl8192cu_load_firmware(struct rtl8xxxu_priv *priv)
 static int rtl8192cu_parse_efuse(struct rtl8xxxu_priv *priv)
 {
 	struct rtl8192cu_efuse *efuse = &priv->efuse_wifi.efuse8192;
-	int i;
 
 	if (efuse->rtl_id != cpu_to_le16(0x8129))
 		return -EINVAL;
@@ -384,36 +451,22 @@ static int rtl8192cu_parse_efuse(struct rtl8xxxu_priv *priv)
 	       efuse->ht20_max_power_offset,
 	       sizeof(efuse->ht20_max_power_offset));
 
-	dev_info(&priv->udev->dev, "Vendor: %.7s\n",
-		 efuse->vendor_name);
-	dev_info(&priv->udev->dev, "Product: %.20s\n",
-		 efuse->device_name);
-
 	priv->power_base = &rtl8192c_power_base;
 
 	if (efuse->rf_regulatory & 0x20) {
-		sprintf(priv->chip_name, "8188RU");
+		strscpy(priv->chip_name, "8188RU", sizeof(priv->chip_name));
 		priv->rtl_chip = RTL8188R;
 		priv->hi_pa = 1;
 		priv->no_pape = 1;
 		priv->power_base = &rtl8188r_power_base;
 	}
 
-	if (rtl8xxxu_debug & RTL8XXXU_DEBUG_EFUSE) {
-		unsigned char *raw = priv->efuse_wifi.raw;
-
-		dev_info(&priv->udev->dev,
-			 "%s: dumping efuse (0x%02zx bytes):\n",
-			 __func__, sizeof(struct rtl8192cu_efuse));
-		for (i = 0; i < sizeof(struct rtl8192cu_efuse); i += 8)
-			dev_info(&priv->udev->dev, "%02x: %8ph\n", i, &raw[i]);
-	}
 	return 0;
 }
 
 static int rtl8192cu_init_phy_rf(struct rtl8xxxu_priv *priv)
 {
-	struct rtl8xxxu_rfregval *rftable;
+	const struct rtl8xxxu_rfregval *rftable;
 	int ret;
 
 	if (priv->rtl_chip == RTL8188R) {
@@ -540,18 +593,120 @@ static int rtl8192cu_power_on(struct rtl8xxxu_priv *priv)
 	return 0;
 }
 
+static void rtl8192cu_power_off(struct rtl8xxxu_priv *priv)
+{
+	u32 val32;
+	u16 val16;
+	u8 val8;
+	int i;
+
+	/*
+	 * Workaround for 8188RU LNA power leakage problem.
+	 */
+	if (priv->rtl_chip == RTL8188R) {
+		val32 = rtl8xxxu_read32(priv, REG_FPGA0_XCD_RF_PARM);
+		val32 |= BIT(1);
+		rtl8xxxu_write32(priv, REG_FPGA0_XCD_RF_PARM, val32);
+	}
+
+	/* _DisableRFAFEAndResetBB */
+	rtl8xxxu_write8(priv, REG_TXPAUSE, 0xff);
+	rtl8xxxu_write_rfreg_mask(priv, RF_A, RF6052_REG_AC, 0xff, 0);
+
+	rtl8xxxu_write8_set(priv, REG_APSD_CTRL, APSD_CTRL_OFF);
+	rtl8xxxu_write32_set(priv, REG_FPGA0_XCD_RF_PARM, FPGA0_RF_PARM_CLK_GATE);
+
+	rtl8xxxu_write8(priv, REG_SYS_FUNC,
+			SYS_FUNC_USBA | SYS_FUNC_USBD | SYS_FUNC_BB_GLB_RSTN);
+	rtl8xxxu_write8(priv, REG_SYS_FUNC, SYS_FUNC_USBA | SYS_FUNC_USBD);
+
+	/* _ResetDigitalProcedure1 */
+	if (rtl8xxxu_read8(priv, REG_MCU_FW_DL) & MCU_FW_DL_READY) {
+		rtl8xxxu_write8(priv, REG_MCU_FW_DL, 0x00);
+
+		rtl8xxxu_write8(priv, REG_FWIMR, 0x20);
+
+		rtl8xxxu_write8(priv, REG_HMTFR + 3, 0x20);
+
+		for (i = 0; i < 100; i++) {
+			val16 = rtl8xxxu_read16(priv, REG_SYS_FUNC);
+			if (!(val16 & SYS_FUNC_CPU_ENABLE))
+				break;
+
+			fsleep(50);
+		}
+
+		if (i == 100) {
+			rtl8xxxu_write8(priv, REG_SYS_FUNC + 1,
+					(SYS_FUNC_HWPDN | SYS_FUNC_ELDR) >> 8);
+			msleep(10);
+		}
+	}
+
+	val8 = (SYS_FUNC_HWPDN | SYS_FUNC_ELDR | SYS_FUNC_CPU_ENABLE) >> 8;
+	rtl8xxxu_write8(priv, REG_SYS_FUNC + 1, val8);
+
+	/* _DisableGPIO */
+	rtl8xxxu_write16(priv, REG_GPIO_PIN_CTRL + 2, 0);
+	val32 = rtl8xxxu_read32(priv, REG_GPIO_PIN_CTRL) & 0xffff00ff;
+	val32 |= (val32 & 0xff) << 8;
+	val32 |= 0x00ff0000;
+	rtl8xxxu_write32(priv, REG_GPIO_PIN_CTRL, val32);
+
+	rtl8xxxu_write8(priv, REG_GPIO_MUXCFG + 3, 0);
+	val16 = rtl8xxxu_read16(priv, REG_GPIO_MUXCFG + 2) & 0xff0f;
+	val16 |= (val16 & 0xf) << 4;
+	val16 |= 0x0780;
+	rtl8xxxu_write16(priv, REG_GPIO_MUXCFG + 2, val16);
+
+	/* _DisableAnalog */
+	val8 = 0x23;
+	if (priv->vendor_umc && priv->chip_cut == 1)
+		val8 |= BIT(3);
+	rtl8xxxu_write8(priv, REG_SPS0_CTRL, val8);
+
+	val16 = APS_FSMCO_HOST | APS_FSMCO_HW_SUSPEND | APS_FSMCO_PFM_ALDN;
+	rtl8xxxu_write16(priv, REG_APS_FSMCO, val16);
+
+	rtl8xxxu_write8(priv, REG_RSV_CTRL, 0x0e);
+}
+
+static int rtl8192cu_led_brightness_set(struct led_classdev *led_cdev,
+					enum led_brightness brightness)
+{
+	struct rtl8xxxu_priv *priv = container_of(led_cdev,
+						  struct rtl8xxxu_priv,
+						  led_cdev);
+	u8 ledcfg = rtl8xxxu_read8(priv, REG_LEDCFG0);
+
+	if (brightness == LED_OFF)
+		ledcfg = LEDCFG2_SW_LED_CONTROL | LEDCFG2_SW_LED_DISABLE;
+	else if (brightness == LED_ON)
+		ledcfg = LEDCFG2_SW_LED_CONTROL;
+	else if (brightness == RTL8XXXU_HW_LED_CONTROL)
+		ledcfg = LEDCFG2_HW_LED_CONTROL | LEDCFG2_HW_LED_ENABLE;
+
+	rtl8xxxu_write8(priv, REG_LEDCFG0, ledcfg);
+
+	return 0;
+}
+
 struct rtl8xxxu_fileops rtl8192cu_fops = {
+	.identify_chip = rtl8192cu_identify_chip,
 	.parse_efuse = rtl8192cu_parse_efuse,
 	.load_firmware = rtl8192cu_load_firmware,
 	.power_on = rtl8192cu_power_on,
-	.power_off = rtl8xxxu_power_off,
+	.power_off = rtl8192cu_power_off,
+	.read_efuse = rtl8xxxu_read_efuse,
 	.reset_8051 = rtl8xxxu_reset_8051,
 	.llt_init = rtl8xxxu_init_llt_table,
 	.init_phy_bb = rtl8xxxu_gen1_init_phy_bb,
 	.init_phy_rf = rtl8192cu_init_phy_rf,
+	.phy_lc_calibrate = rtl8723a_phy_lc_calibrate,
 	.phy_iq_calibrate = rtl8xxxu_gen1_phy_iq_calibrate,
 	.config_channel = rtl8xxxu_gen1_config_channel,
 	.parse_rx_desc = rtl8xxxu_parse_rxdesc16,
+	.parse_phystats = rtl8723au_rx_parse_phystats,
 	.init_aggregation = rtl8xxxu_gen1_init_aggregation,
 	.enable_rf = rtl8xxxu_gen1_enable_rf,
 	.disable_rf = rtl8xxxu_gen1_disable_rf,
@@ -559,11 +714,18 @@ struct rtl8xxxu_fileops rtl8192cu_fops = {
 	.set_tx_power = rtl8xxxu_gen1_set_tx_power,
 	.update_rate_mask = rtl8xxxu_update_rate_mask,
 	.report_connect = rtl8xxxu_gen1_report_connect,
+	.report_rssi = rtl8xxxu_gen1_report_rssi,
 	.fill_txdesc = rtl8xxxu_fill_txdesc_v1,
+	.cck_rssi = rtl8723a_cck_rssi,
+	.led_classdev_brightness_set = rtl8192cu_led_brightness_set,
 	.writeN_block_size = 128,
 	.rx_agg_buf_size = 16000,
 	.tx_desc_size = sizeof(struct rtl8xxxu_txdesc32),
 	.rx_desc_size = sizeof(struct rtl8xxxu_rxdesc16),
+	.supports_ap = 1,
+	.hw_feature_report = 0,
+	.max_macid_num = 32,
+	.max_sec_cam_num = 32,
 	.adda_1t_init = 0x0b1b25a0,
 	.adda_1t_path_on = 0x0bdb25a0,
 	.adda_2t_path_on_a = 0x04db25a4,
@@ -571,7 +733,7 @@ struct rtl8xxxu_fileops rtl8192cu_fops = {
 	.trxff_boundary = 0x27ff,
 	.pbp_rx = PBP_PAGE_SIZE_128,
 	.pbp_tx = PBP_PAGE_SIZE_128,
-	.mactable = rtl8xxxu_gen1_mac_init_table,
+	.mactable = rtl8192cu_mac_init_table,
 	.total_page_num = TX_TOTAL_PAGE_NUM,
 	.page_num_hi = TX_PAGE_NUM_HI_PQ,
 	.page_num_lo = TX_PAGE_NUM_LO_PQ,
