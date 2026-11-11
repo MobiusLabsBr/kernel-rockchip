@@ -7455,7 +7455,13 @@ static int rtl8xxxu_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 		val32 = CAM_CMD_POLLING | CAM_CMD_WRITE |
 			key->hw_key_idx << CAM_CMD_KEY_SHIFT;
 		rtl8xxxu_write32(priv, REG_CAM_CMD, val32);
-		rtlvif->hw_key_idx = 0xff;
+		/*
+		 * Only forget the group key's entry when it is the group key
+		 * that goes: a station leaving removes its pairwise key, and a
+		 * group rekey removes the old key after the new one is set.
+		 */
+		if (rtlvif->hw_key_idx == key->hw_key_idx)
+			rtlvif->hw_key_idx = 0xff;
 		clear_bit(key->hw_key_idx, priv->cam_map);
 		retval = 0;
 		break;
