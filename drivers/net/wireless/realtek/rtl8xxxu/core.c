@@ -5590,6 +5590,13 @@ rtl8xxxu_fill_txdesc_v3(struct ieee80211_hw *hw, struct ieee80211_hdr *hdr,
 		tx_desc->txdw2 |= cpu_to_le32(TXDESC40_AGG_BREAK);
 
 	if (ieee80211_is_mgmt(hdr->frame_control)) {
+		/*
+		 * An AP's management frames, beacons included, at the lowest
+		 * basic rate of its BSS: 1M would be a rate the BSS may not
+		 * even allow.
+		 */
+		if (ap_vif)
+			rate = rtl8xxxu_lowest_basic_rate(hw, ap_vif);
 		tx_desc->txdw5 = cpu_to_le32(rate);
 		tx_desc->txdw4 |= cpu_to_le32(TXDESC32_USE_DRIVER_RATE);
 		tx_desc->txdw5 |= cpu_to_le32(6 << TXDESC32_RETRY_LIMIT_SHIFT);
