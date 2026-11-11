@@ -5509,11 +5509,27 @@ rtl8xxxu_fill_txdesc_v3(struct ieee80211_hw *hw, struct ieee80211_hdr *hdr,
 {
 	struct rtl8xxxu_priv *priv = hw->priv;
 	struct device *dev = &priv->udev->dev;
-	struct rtl8xxxu_ra_info *ra = &priv->ra_info[macid];
+	struct rtl8xxxu_ra_info *ra;
 	u8 *qc = ieee80211_get_qos_ctl(hdr);
 	u8 tid = qc[0] & IEEE80211_QOS_CTL_TID_MASK;
+	u8 ra_macid = macid;
 	u32 rate = 0;
 	u16 seq_number;
+
+	/*
+	 * With EN_DESC_ID (group addressed frames under a hardware key), macid
+	 * is the key's CAM entry, not a station: those frames belong to the
+	 * broadcast/multicast macid.
+	 */
+	if (tx_desc->txdw1 & cpu_to_le32(TXDESC_EN_DESC_ID) ||
+	    ra_macid >= RTL8188E_MAX_MAC_ID_NUM)
+		ra_macid = RTL8XXXU_BC_MC_MACID;
+	ra = &priv->ra_info[ra_macid];
+
+	/* The chip counts retries and drops per macid, for the TX reports
+	 * that drive the rate control.
+	 */
+	tx_desc->txdw1 |= le32_encode_bits(macid, TXDESC32_MACID_MASK);
 
 	seq_number = IEEE80211_SEQ_TO_SN(le16_to_cpu(hdr->seq_ctrl));
 
@@ -7793,10 +7809,21 @@ static int rtl8xxxu_sta_add(struct ieee80211_hw *hw,
 			mutex_unlock(&priv->sta_mutex);
 			return -ENOSPC;
 		}
+		/* Two macids are taken by broadcast/multicast, so the last
+		 * station mac80211 lets in would get one the chip doesn't have.
+		 */
+		if (priv->fops->max_macid_num &&
+		    sta_info->macid >= priv->fops->max_macid_num) {
+			rtl8xxxu_release_macid(priv, sta_info->macid);
+			mutex_unlock(&priv->sta_mutex);
+			return -ENOSPC;
+		}
 
 		if (priv->rtl_chip == RTL8188E) {
 			max_mac_id = rtl8xxxu_max_acquired_macid(priv);
 			rtl8xxxu_write8(priv, REG_TX_REPORT_CTRL + 1, max_mac_id + 1);
+			/* A macid is reused: start from a clean rate control state. */
+			rtl8188e_ra_info_init_all(&priv->ra_info[sta_info->macid]);
 		}
 
 		rtl8xxxu_refresh_rate_mask(priv, 0, sta, true);
