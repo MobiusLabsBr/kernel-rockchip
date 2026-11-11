@@ -5800,6 +5800,9 @@ error:
 	dev_kfree_skb(skb);
 }
 
+/* How often a beacon is handed to the chip before giving up. */
+#define RTL8XXXU_BEACON_TRIES		5
+
 /* Group addressed frames held for the stations in power save, at most. */
 #define RTL8XXXU_BMC_QUEUE_MAX		64
 
@@ -5849,13 +5852,9 @@ static void rtl8xxxu_send_beacon_frame(struct ieee80211_hw *hw,
 						       &tim_len);
 #endif
 	struct device *dev = &priv->udev->dev;
-	int retry;
+	struct sk_buff *copy;
+	int retry, tries;
 	u8 val8;
-
-	/* BCN_VALID, write 1 to clear, cleared by SW */
-	val8 = rtl8xxxu_read8(priv, REG_TDECTRL + 2);
-	val8 |= BIT_BCN_VALID >> 16;
-	rtl8xxxu_write8(priv, REG_TDECTRL + 2, val8);
 
 	/* SW_BCN_SEL - Port0 */
 	val8 = rtl8xxxu_read8(priv, REG_DWBCN1_CTRL_8723B + 2);
@@ -5881,19 +5880,41 @@ static void rtl8xxxu_send_beacon_frame(struct ieee80211_hw *hw,
 			tim[4] &= ~BIT(0);
 	}
 
-	if (skb)
-		__rtl8xxxu_tx(hw, NULL, skb, false);
+	if (!skb)
+		return;
 
-	retry = 100;
-	do {
+	/*
+	 * The chip sets BCN_VALID once it has taken the beacon. Now and then
+	 * it doesn't: hand it the beacon again, as the vendor driver does.
+	 */
+	for (tries = RTL8XXXU_BEACON_TRIES; tries; tries--) {
+		/* BCN_VALID, write 1 to clear, cleared by SW */
 		val8 = rtl8xxxu_read8(priv, REG_TDECTRL + 2);
-		if (val8 & (BIT_BCN_VALID >> 16))
+		val8 |= BIT_BCN_VALID >> 16;
+		rtl8xxxu_write8(priv, REG_TDECTRL + 2, val8);
+
+		copy = tries > 1 ? skb_copy(skb, GFP_KERNEL) : NULL;
+		__rtl8xxxu_tx(hw, NULL, skb, false);
+		skb = copy;
+
+		retry = 100;
+		do {
+			val8 = rtl8xxxu_read8(priv, REG_TDECTRL + 2);
+			if (val8 & (BIT_BCN_VALID >> 16))
+				break;
+			usleep_range(10, 20);
+		} while (--retry);
+
+		if (retry || !skb)
 			break;
-		usleep_range(10, 20);
-	} while (--retry);
+	}
+	dev_kfree_skb(skb);
 
 	if (!retry)
 		dev_err(dev, "%s: Failed to read beacon valid bit\n", __func__);
+	else if (tries != RTL8XXXU_BEACON_TRIES)
+		dev_dbg(dev, "%s: beacon taken at try %d\n", __func__,
+			RTL8XXXU_BEACON_TRIES - tries + 1);
 }
 
 static void rtl8xxxu_update_beacon_work_callback(struct work_struct *work)
