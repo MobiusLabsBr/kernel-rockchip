@@ -134,6 +134,7 @@ static inline void fsleep(unsigned long usecs)
 #define RTL8XXXU_DEBUG_ACTION		0x1000
 #define RTL8XXXU_DEBUG_EFUSE		0x2000
 #define RTL8XXXU_DEBUG_INTERRUPT	0x4000
+#define RTL8XXXU_DEBUG_RA		0x8000
 
 #define RTW_USB_CONTROL_MSG_TIMEOUT	500
 #define RTL8XXXU_MAX_REG_POLL		500

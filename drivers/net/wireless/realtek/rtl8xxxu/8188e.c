@@ -1729,6 +1729,14 @@ void rtl8188e_handle_ra_tx_report2(struct rtl8xxxu_priv *priv, struct sk_buff *s
 			ra->retry[0], ra->retry[1], ra->retry[2],
 			ra->retry[3], ra->retry[4], ra->drop);
 
+		if (valid && ra->total && (rtl8xxxu_debug & RTL8XXXU_DEBUG_RA))
+			dev_info(dev,
+				 "ra: macid %u total %u retry %u/%u/%u/%u/%u drop %u rate 0x%02x sgi %u pt %u rpt_time 0x%04x\n",
+				 macid, ra->total, ra->retry[0], ra->retry[1],
+				 ra->retry[2], ra->retry[3], ra->retry[4],
+				 ra->drop, ra->decision_rate, ra->rate_sgi,
+				 ra->pt_stage, ra->rpt_time);
+
 		if (min_rpt_time > ra->rpt_time)
 			min_rpt_time = ra->rpt_time;
 
