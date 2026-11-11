@@ -5632,9 +5632,9 @@ rtl8xxxu_fill_txdesc_v3(struct ieee80211_hw *hw, struct ieee80211_hdr *hdr,
 	tx_desc->txdw7 |= cpu_to_le16(TXDESC_ANTENNA_SELECT_C >> 16);
 }
 
-static void rtl8xxxu_tx(struct ieee80211_hw *hw,
-			struct ieee80211_tx_control *control,
-			struct sk_buff *skb)
+static void __rtl8xxxu_tx(struct ieee80211_hw *hw,
+			  struct ieee80211_tx_control *control,
+			  struct sk_buff *skb, bool high_queue)
 {
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
 	struct ieee80211_tx_info *tx_info = IEEE80211_SKB_CB(skb);
@@ -5680,6 +5680,9 @@ static void rtl8xxxu_tx(struct ieee80211_hw *hw,
 		sta = control->sta;
 
 	queue = rtl8xxxu_queue_select(hdr, skb);
+	/* The chip sends its high queue right after the beacon. */
+	if (high_queue)
+		queue = TXDESC_QUEUE_HIGH;
 
 	tx_desc = skb_push(skb, tx_desc_size);
 
@@ -5797,14 +5800,53 @@ error:
 	dev_kfree_skb(skb);
 }
 
+/* Group addressed frames held for the stations in power save, at most. */
+#define RTL8XXXU_BMC_QUEUE_MAX		64
+
+static void rtl8xxxu_purge_bmc_queue(struct rtl8xxxu_priv *priv)
+{
+	struct sk_buff *skb;
+
+	while ((skb = skb_dequeue(&priv->bmc_queue)))
+		ieee80211_free_txskb(priv->hw, skb);
+}
+
+static void rtl8xxxu_tx(struct ieee80211_hw *hw,
+			struct ieee80211_tx_control *control,
+			struct sk_buff *skb)
+{
+	struct ieee80211_tx_info *tx_info = IEEE80211_SKB_CB(skb);
+	struct rtl8xxxu_priv *priv = hw->priv;
+
+	/*
+	 * mac80211 marks the group addressed frames that stations in power
+	 * save must not miss. They only listen after a beacon whose TIM
+	 * announces such frames, so hold these until the beacon says so
+	 * (rtl8xxxu_update_beacon_work_callback()).
+	 */
+	if (priv->fops->sw_tim &&
+	    (tx_info->flags & IEEE80211_TX_CTL_SEND_AFTER_DTIM)) {
+		if (skb_queue_len(&priv->bmc_queue) >= RTL8XXXU_BMC_QUEUE_MAX)
+			ieee80211_free_txskb(hw, skb_dequeue(&priv->bmc_queue));
+		skb_queue_tail(&priv->bmc_queue, skb);
+		mod_delayed_work(system_wq, &priv->update_beacon_work, 0);
+		return;
+	}
+
+	__rtl8xxxu_tx(hw, control, skb, false);
+}
+
 static void rtl8xxxu_send_beacon_frame(struct ieee80211_hw *hw,
 				       struct ieee80211_vif *vif)
 {
 	struct rtl8xxxu_priv *priv = hw->priv;
+	u16 tim_offset = 0, tim_len = 0;
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0))
-	struct sk_buff *skb = ieee80211_beacon_get(hw, vif, 0);
+	struct sk_buff *skb = ieee80211_beacon_get_tim(hw, vif, &tim_offset,
+						       &tim_len, 0);
 #else
-	struct sk_buff *skb = ieee80211_beacon_get(hw, vif);
+	struct sk_buff *skb = ieee80211_beacon_get_tim(hw, vif, &tim_offset,
+						       &tim_len);
 #endif
 	struct device *dev = &priv->udev->dev;
 	int retry;
@@ -5820,8 +5862,27 @@ static void rtl8xxxu_send_beacon_frame(struct ieee80211_hw *hw,
 	val8 &= ~(BIT_SW_BCN_SEL >> 16);
 	rtl8xxxu_write8(priv, REG_DWBCN1_CTRL_8723B + 2, val8);
 
+	/*
+	 * The chip repeats this template at every beacon interval, TIM
+	 * included. A DTIM count frozen at 1 would mean no DTIM beacon at
+	 * all, and stations in power save would never be told about group
+	 * addressed frames: make every beacon a DTIM beacon (count 0, period
+	 * 1), as the vendor driver does, and announce the held frames.
+	 */
+	if (skb && priv->fops->sw_tim && tim_len >= 5 &&
+	    tim_offset + tim_len <= skb->len) {
+		u8 *tim = skb->data + tim_offset;
+
+		tim[2] = 0;
+		tim[3] = 1;
+		if (priv->tim_bmc)
+			tim[4] |= BIT(0);
+		else
+			tim[4] &= ~BIT(0);
+	}
+
 	if (skb)
-		rtl8xxxu_tx(hw, NULL, skb);
+		__rtl8xxxu_tx(hw, NULL, skb, false);
 
 	retry = 100;
 	do {
@@ -5871,6 +5932,38 @@ static void rtl8xxxu_update_beacon_work_callback(struct work_struct *work)
 		schedule_delayed_work(&priv->update_beacon_work,
 				      msecs_to_jiffies(vif->bss_conf.beacon_int));
 	}
+
+	if (priv->fops->sw_tim) {
+		unsigned long linger = 2 * usecs_to_jiffies(vif->bss_conf.beacon_int * 1024);
+		bool pending = !skb_queue_empty(&priv->bmc_queue);
+		struct sk_buff *skb;
+
+		/*
+		 * Announce the held frames in the beacon first, then hand
+		 * them to the high queue, which the chip sends right after
+		 * the beacon. Keep announcing them for two beacons, then take
+		 * the announcement out again.
+		 */
+		priv->tim_bmc = pending ||
+			(priv->tim_bmc &&
+			 time_before(jiffies, priv->bmc_released + linger));
+		rtl8xxxu_send_beacon_frame(hw, vif);
+
+		while ((skb = skb_dequeue(&priv->bmc_queue))) {
+			struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
+
+			/* More follow: stay awake. */
+			if (!skb_queue_empty(&priv->bmc_queue))
+				hdr->frame_control |= cpu_to_le16(IEEE80211_FCTL_MOREDATA);
+			__rtl8xxxu_tx(hw, NULL, skb, true);
+		}
+		if (pending)
+			priv->bmc_released = jiffies;
+		if (priv->tim_bmc)
+			schedule_delayed_work(&priv->update_beacon_work, linger);
+		return;
+	}
+
 	rtl8xxxu_send_beacon_frame(hw, vif);
 }
 
@@ -7833,6 +7926,8 @@ static void rtl8xxxu_stop(struct ieee80211_hw *hw)
 	cancel_work_sync(&priv->c2hcmd_work);
 	cancel_delayed_work_sync(&priv->ra_watchdog);
 	cancel_delayed_work_sync(&priv->update_beacon_work);
+	rtl8xxxu_purge_bmc_queue(priv);
+	priv->tim_bmc = false;
 
 	rtl8xxxu_free_rx_resources(priv);
 	rtl8xxxu_free_tx_resources(priv);
@@ -8157,6 +8252,7 @@ static int rtl8xxxu_probe(struct usb_interface *interface,
 	INIT_DELAYED_WORK(&priv->ra_watchdog, rtl8xxxu_watchdog_callback);
 	INIT_DELAYED_WORK(&priv->update_beacon_work, rtl8xxxu_update_beacon_work_callback);
 	skb_queue_head_init(&priv->c2hcmd_queue);
+	skb_queue_head_init(&priv->bmc_queue);
 
 	usb_set_intfdata(interface, hw);
 

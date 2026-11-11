@@ -2030,6 +2030,14 @@ struct rtl8xxxu_priv {
 	struct work_struct c2hcmd_work;
 	struct sk_buff_head c2hcmd_queue;
 	struct delayed_work update_beacon_work;
+	/*
+	 * AP mode with sw_tim: group addressed frames held for the stations
+	 * in power save until the beacon announces them, when they were last
+	 * released, and whether the beacon in the chip announces any.
+	 */
+	struct sk_buff_head bmc_queue;
+	unsigned long bmc_released;
+	bool tim_bmc;
 	struct rtl8xxxu_btcoex bt_coex;
 	struct rtl8xxxu_ra_report ra_report;
 	struct rtl8xxxu_cfo_tracking cfo_tracking;
@@ -2139,6 +2147,12 @@ struct rtl8xxxu_fileops {
 	u8 ustime_tsf_edca;
 	u16 max_aggr_num;
 	u8 supports_ap:1;
+	/*
+	 * The chip sends the beacon template as it is: the driver keeps the
+	 * TIM's DTIM fields right and holds back group addressed frames for
+	 * stations in power save itself.
+	 */
+	u8 sw_tim:1;
 	u16 max_macid_num;
 	u16 max_sec_cam_num;
 	u32 adda_1t_init;
