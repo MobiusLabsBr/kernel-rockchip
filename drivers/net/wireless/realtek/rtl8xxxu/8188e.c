@@ -1685,6 +1685,8 @@ void rtl8188e_handle_ra_tx_report2(struct rtl8xxxu_priv *priv, struct sk_buff *s
 	if (!priv->vifs[0] || priv->vifs[0]->type == NL80211_IFTYPE_STATION)
 		items = 1;
 
+	items = min_t(u32, items, RTL8188E_MAX_MAC_ID_NUM);
+
 	for (macid = 0; macid < items; macid++) {
 		valid = false;
 		ra = &priv->ra_info[macid];
@@ -1730,9 +1732,9 @@ void rtl8188e_handle_ra_tx_report2(struct rtl8xxxu_priv *priv, struct sk_buff *s
 		rpt += TX_RPT2_ITEM_SIZE;
 	}
 
-	if (min_rpt_time != ra->pre_min_rpt_time) {
+	if (min_rpt_time != priv->pre_min_rpt_time) {
 		rtl8xxxu_write16(priv, REG_TX_REPORT_TIME, min_rpt_time);
-		ra->pre_min_rpt_time = min_rpt_time;
+		priv->pre_min_rpt_time = min_rpt_time;
 	}
 }
 

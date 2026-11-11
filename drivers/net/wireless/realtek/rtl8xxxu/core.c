@@ -4465,16 +4465,10 @@ static int rtl8xxxu_init_device(struct ieee80211_hw *hw)
 		priv->cfo_tracking.crystal_cap = priv->default_crystal_cap;
 	}
 
-	if (priv->rtl_chip == RTL8188E)	{
-		priv->ra_info = kmalloc_array(RTL8188E_MAX_MAC_ID_NUM, sizeof(*priv->ra_info), GFP_KERNEL);
-		if (!priv->ra_info) {
-			ret = -ENOMEM;
-			goto exit;
-		}
-		for (mac_id = 0; mac_id < RTL8188E_MAX_MAC_ID_NUM; mac_id++) {
+	if (priv->rtl_chip == RTL8188E)
+		for (mac_id = 0; mac_id < RTL8188E_MAX_MAC_ID_NUM; mac_id++)
 			rtl8188e_ra_info_init_all(&priv->ra_info[mac_id]);
-		}
-	}
+
 	set_bit(RTL8XXXU_BC_MC_MACID, priv->mac_id_map);
 	set_bit(RTL8XXXU_BC_MC_MACID1, priv->mac_id_map);
 
@@ -8102,6 +8096,16 @@ static int rtl8xxxu_probe(struct usb_interface *interface,
 		goto err_set_intfdata;
 	}
 
+	if (priv->rtl_chip == RTL8188E) {
+		priv->ra_info = devm_kcalloc(&interface->dev,
+					     RTL8188E_MAX_MAC_ID_NUM,
+					     sizeof(*priv->ra_info), GFP_KERNEL);
+		if (!priv->ra_info) {
+			ret = -ENOMEM;
+			goto err_set_intfdata;
+		}
+	}
+
 	hw->wiphy->available_antennas_tx = BIT(priv->tx_paths) - 1;
 	hw->wiphy->available_antennas_rx = BIT(priv->rx_paths) - 1;
 
@@ -8214,7 +8218,6 @@ static int rtl8xxxu_probe(struct usb_interface *interface,
 err_set_intfdata:
 	usb_set_intfdata(interface, NULL);
 
-	kfree(priv->ra_info);
 	kfree(priv->fw_data);
 	mutex_destroy(&priv->usb_buf_mutex);
 	mutex_destroy(&priv->syson_indirect_access_mutex);
@@ -8242,7 +8245,6 @@ static void rtl8xxxu_disconnect(struct usb_interface *interface)
 	usb_set_intfdata(interface, NULL);
 
 	dev_info(&priv->udev->dev, "disconnecting\n");
-	kfree(priv->ra_info);
 	kfree(priv->fw_data);
 	mutex_destroy(&priv->usb_buf_mutex);
 	mutex_destroy(&priv->syson_indirect_access_mutex);
