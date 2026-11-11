@@ -5557,6 +5557,9 @@ rtl8xxxu_fill_txdesc_v3(struct ieee80211_hw *hw, struct ieee80211_hdr *hdr,
 	 */
 	tx_desc->txdw1 |= le32_encode_bits(macid, TXDESC32_MACID_MASK);
 
+	if (tx_info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS)
+		ra->status_pending = true;
+
 	seq_number = IEEE80211_SEQ_TO_SN(le16_to_cpu(hdr->seq_ctrl));
 
 	if (ieee80211_is_data(hdr->frame_control) &&
@@ -6691,6 +6694,7 @@ static void rtl8xxxu_rx_update_rssi_iter(void *data, u8 *mac,
 
 	sta_info = (struct rtl8xxxu_sta_info *)sta->drv_priv;
 	ewma_rssi_add(&sta_info->avg_rssi, -rx_status->signal);
+	WRITE_ONCE(sta_info->last_rx, jiffies);
 }
 
 static inline u8 *get_hdr_bssid(struct ieee80211_hdr *hdr)
@@ -8012,6 +8016,7 @@ static int rtl8xxxu_sta_add(struct ieee80211_hw *hw,
 
 	mutex_lock(&priv->sta_mutex);
 	ewma_rssi_init(&sta_info->avg_rssi);
+	sta_info->last_rx = jiffies;
 	if (vif->type == NL80211_IFTYPE_AP) {
 		sta_info->rssi_level = RTL8XXXU_RATR_STA_INIT;
 		sta_info->macid = rtl8xxxu_acquire_macid(priv);

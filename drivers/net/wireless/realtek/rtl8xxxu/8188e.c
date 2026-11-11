@@ -1663,6 +1663,91 @@ static void rtl8188e_power_training_decision(struct rtl8xxxu_ra_info *ra)
 	ra->pt_stage = temp_stage;
 }
 
+/*
+ * The driver can't tell mac80211 whether a single frame was acknowledged:
+ * it reports every frame as acknowledged when the USB transfer completes.
+ * mac80211 and hostapd would then never notice a station that is gone
+ * without having said so (out of range, powered off), and it would keep
+ * its macid. The TX reports say, per macid, how many frames got through
+ * and how many were dropped: report a lost station from those, together
+ * with how long the station has been silent.
+ *
+ * A station in power save has a few frames dropped now and then, while it
+ * dozes and before the AP knows; it is still heard from. A station that is
+ * gone is not:
+ * - many frames dropped in a row, and nothing heard from it for a second
+ *   (mac80211's own rule, for drivers with real TX status);
+ * - or a frame that asked for a status (hostapd polls a station that has
+ *   been silent for ap_max_inactivity) dropped, nothing delivered, and
+ *   nothing heard for longer.
+ */
+#define RTL8188E_LOST_FRAMES		50
+#define RTL8188E_LOST_SILENT_MS		1000
+#define RTL8188E_POLL_SILENT_MS		10000
+
+struct rtl8188e_lost_sta {
+	struct rtl8xxxu_priv *priv;
+	struct rtl8xxxu_ra_info *ra;
+	u8 macid;
+	bool reported;
+};
+
+static void rtl8188e_report_lost_iter(void *data, struct ieee80211_sta *sta)
+{
+	struct rtl8xxxu_sta_info *sta_info = (struct rtl8xxxu_sta_info *)sta->drv_priv;
+	struct rtl8188e_lost_sta *lost = data;
+	struct rtl8xxxu_ra_info *ra = lost->ra;
+	unsigned int silent;
+
+	if (sta_info->macid != lost->macid)
+		return;
+
+	silent = jiffies_to_msecs(jiffies - READ_ONCE(sta_info->last_rx));
+	if (!(ra->lost_streak >= RTL8188E_LOST_FRAMES &&
+	      silent >= RTL8188E_LOST_SILENT_MS) &&
+	    !(ra->status_pending && silent >= RTL8188E_POLL_SILENT_MS))
+		return;
+
+	dev_info(&lost->priv->udev->dev,
+		 "%pM: %u frames dropped in a row, silent for %u ms: reporting the station lost\n",
+		 sta->addr, ra->lost_streak, silent);
+	ieee80211_report_low_ack(sta, ra->lost_streak);
+	lost->reported = true;
+}
+
+static void rtl8188e_check_lost(struct rtl8xxxu_priv *priv,
+				struct rtl8xxxu_ra_info *ra, u8 macid)
+{
+	struct rtl8188e_lost_sta lost = {
+		.priv = priv, .ra = ra, .macid = macid,
+	};
+	u32 delivered;
+
+	if (macid <= RTL8XXXU_BC_MC_MACID1)
+		return;
+
+	delivered = ra->retry[0] + ra->retry[1] + ra->retry[2] +
+		    ra->retry[3] + ra->retry[4];
+	if (delivered) {
+		ra->lost_streak = 0;
+		ra->status_pending = false;
+		return;
+	}
+	if (!ra->drop)
+		return;
+
+	ra->lost_streak = min_t(u32, ra->lost_streak + ra->drop, U16_MAX);
+	if (ra->lost_streak < RTL8188E_LOST_FRAMES && !ra->status_pending)
+		return;
+
+	ieee80211_iterate_stations_atomic(priv->hw, rtl8188e_report_lost_iter,
+					  &lost);
+	if (lost.reported) {
+		ra->lost_streak = 0;
+		ra->status_pending = false;
+	}
+}
+
 void rtl8188e_handle_ra_tx_report2(struct rtl8xxxu_priv *priv, struct sk_buff *skb)
 {
 	u32 *_rx_desc = (u32 *)(skb->data - sizeof(struct rtl8xxxu_rxdesc16));
@@ -1716,6 +1801,8 @@ void rtl8188e_handle_ra_tx_report2(struct rtl8xxxu_priv *priv, struct sk_buff *s
 					ra->ra_stage++;
 				else
 					ra->ra_stage = 0;
+
+				rtl8188e_check_lost(priv, ra, macid);
 			}
 		} else if (macid == 0 && items == 1) {
 			/* In AP mode macid 0 is broadcast/multicast, which may

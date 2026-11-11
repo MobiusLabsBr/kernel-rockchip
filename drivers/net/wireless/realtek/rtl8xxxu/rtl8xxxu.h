@@ -1879,6 +1879,13 @@ struct rtl8xxxu_ra_info {
 	u8 pt_mode_ss;		/* decide which rate should do PT */
 	u8 ra_stage;		/* StageRA, decide how many times RA will be done between PT */
 	u8 pt_smooth_factor;
+	/*
+	 * AP mode: frames dropped in a row since the last one that got
+	 * through, and whether a frame mac80211 wants a status for (such as
+	 * hostapd's poll of an idle station) was sent since the last report.
+	 */
+	u16 lost_streak;
+	bool status_pending;
 };
 
 #define CFO_TH_XTAL_HIGH	20 /* kHz */
@@ -2067,6 +2074,8 @@ struct rtl8xxxu_sta_info {
 	u8 macid;
 	struct ewma_rssi avg_rssi;
 	u8 rssi_level;
+	/* When a frame from this station was last received (jiffies). */
+	unsigned long last_rx;
 };
 
 struct rtl8xxxu_vif {
