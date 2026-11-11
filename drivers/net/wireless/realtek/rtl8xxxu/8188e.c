@@ -1717,7 +1717,10 @@ void rtl8188e_handle_ra_tx_report2(struct rtl8xxxu_priv *priv, struct sk_buff *s
 				else
 					ra->ra_stage = 0;
 			}
-		} else if (macid == 0) {
+		} else if (macid == 0 && items == 1) {
+			/* In AP mode macid 0 is broadcast/multicast, which may
+			 * well have sent nothing since the last report.
+			 */
 			dev_warn(dev, "%s: TX report item 0 not valid\n", __func__);
 		}
 
