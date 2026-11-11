@@ -5496,6 +5496,23 @@ rtl8xxxu_fill_txdesc_v2(struct ieee80211_hw *hw, struct ieee80211_hdr *hdr,
 }
 
 /*
+ * The rate of group addressed frames: the lowest basic rate of the BSS.
+ */
+static u32 rtl8xxxu_lowest_basic_rate(struct ieee80211_hw *hw,
+				      struct ieee80211_vif *vif)
+{
+	struct ieee80211_supported_band *sband =
+		hw->wiphy->bands[NL80211_BAND_2GHZ];
+	u32 basic = vif ? vif->bss_conf.basic_rates : 0;
+	int idx = basic ? __ffs(basic) : 0;
+
+	if (idx >= sband->n_bitrates)
+		idx = 0;
+
+	return sband->bitrates[idx].hw_value;
+}
+
+/*
  * Fill in v3 (gen1) specific TX descriptor bits.
  * This format is a hybrid between the v1 and v2 formats, only seen
  * on 8188eu devices so far.
@@ -5512,9 +5529,18 @@ rtl8xxxu_fill_txdesc_v3(struct ieee80211_hw *hw, struct ieee80211_hdr *hdr,
 	struct rtl8xxxu_ra_info *ra;
 	u8 *qc = ieee80211_get_qos_ctl(hdr);
 	u8 tid = qc[0] & IEEE80211_QOS_CTL_TID_MASK;
+	/*
+	 * Not tx_info->control.vif: rtl8xxxu_tx() has put its own data
+	 * (rate_driver_data) over it by now. Only an AP sends group addressed
+	 * frames, and an AP interface is always on port 0.
+	 */
+	struct ieee80211_vif *ap_vif = priv->vifs[0];
 	u8 ra_macid = macid;
 	u32 rate = 0;
 	u16 seq_number;
+
+	if (ap_vif && ap_vif->type != NL80211_IFTYPE_AP)
+		ap_vif = NULL;
 
 	/*
 	 * With EN_DESC_ID (group addressed frames under a hardware key), macid
@@ -5533,7 +5559,17 @@ rtl8xxxu_fill_txdesc_v3(struct ieee80211_hw *hw, struct ieee80211_hdr *hdr,
 
 	seq_number = IEEE80211_SEQ_TO_SN(le16_to_cpu(hdr->seq_ctrl));
 
-	if (ieee80211_is_data(hdr->frame_control)) {
+	if (ieee80211_is_data(hdr->frame_control) &&
+	    is_multicast_ether_addr(hdr->addr1)) {
+		/*
+		 * Group addressed frames are not acknowledged, so the rate
+		 * control learns nothing from them, and every station has to
+		 * hear them: the lowest basic rate, not a station's rate.
+		 */
+		rate = rtl8xxxu_lowest_basic_rate(hw, ap_vif);
+		tx_desc->txdw5 = cpu_to_le32(rate);
+		tx_desc->txdw4 |= cpu_to_le32(TXDESC32_USE_DRIVER_RATE);
+	} else if (ieee80211_is_data(hdr->frame_control)) {
 		rate = ra->decision_rate;
 		tx_desc->txdw5 = cpu_to_le32(rate);
 		tx_desc->txdw4 |= cpu_to_le32(TXDESC32_USE_DRIVER_RATE);
