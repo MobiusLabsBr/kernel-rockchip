@@ -5498,8 +5498,8 @@ rtl8xxxu_fill_txdesc_v2(struct ieee80211_hw *hw, struct ieee80211_hdr *hdr,
 /*
  * The rate of group addressed frames: the lowest basic rate of the BSS.
  */
-static u32 rtl8xxxu_lowest_basic_rate(struct ieee80211_hw *hw,
-				      struct ieee80211_vif *vif)
+static const struct ieee80211_rate *
+rtl8xxxu_lowest_basic_rate(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 {
 	struct ieee80211_supported_band *sband =
 		hw->wiphy->bands[NL80211_BAND_2GHZ];
@@ -5509,7 +5509,7 @@ static u32 rtl8xxxu_lowest_basic_rate(struct ieee80211_hw *hw,
 	if (idx >= sband->n_bitrates)
 		idx = 0;
 
-	return sband->bitrates[idx].hw_value;
+	return &sband->bitrates[idx];
 }
 
 /*
@@ -5566,7 +5566,7 @@ rtl8xxxu_fill_txdesc_v3(struct ieee80211_hw *hw, struct ieee80211_hdr *hdr,
 		 * control learns nothing from them, and every station has to
 		 * hear them: the lowest basic rate, not a station's rate.
 		 */
-		rate = rtl8xxxu_lowest_basic_rate(hw, ap_vif);
+		rate = rtl8xxxu_lowest_basic_rate(hw, ap_vif)->hw_value;
 		tx_desc->txdw5 = cpu_to_le32(rate);
 		tx_desc->txdw4 |= cpu_to_le32(TXDESC32_USE_DRIVER_RATE);
 	} else if (ieee80211_is_data(hdr->frame_control)) {
@@ -5596,7 +5596,7 @@ rtl8xxxu_fill_txdesc_v3(struct ieee80211_hw *hw, struct ieee80211_hdr *hdr,
 		 * even allow.
 		 */
 		if (ap_vif)
-			rate = rtl8xxxu_lowest_basic_rate(hw, ap_vif);
+			rate = rtl8xxxu_lowest_basic_rate(hw, ap_vif)->hw_value;
 		tx_desc->txdw5 = cpu_to_le32(rate);
 		tx_desc->txdw4 |= cpu_to_le32(TXDESC32_USE_DRIVER_RATE);
 		tx_desc->txdw5 |= cpu_to_le32(6 << TXDESC32_RETRY_LIMIT_SHIFT);
@@ -5812,6 +5812,15 @@ error:
 
 /* Group addressed frames held for the stations in power save, at most. */
 #define RTL8XXXU_BMC_QUEUE_MAX		64
+/*
+ * The chip sends its high queue only in the ATIM window after a beacon
+ * (12 ms in AP mode), and what doesn't fit stays in the chip. The high
+ * queue shares its USB endpoint with other queues, so a backlog there
+ * stalls all transmission. Hand over what about 10 ms of air time can
+ * carry per beacon, and never more than the queue's pages hold.
+ */
+#define RTL8XXXU_BMC_AIRTIME_US		10000
+#define RTL8XXXU_BMC_BYTES_MAX		4000
 
 static void rtl8xxxu_purge_bmc_queue(struct rtl8xxxu_priv *priv)
 {
@@ -5962,9 +5971,18 @@ static void rtl8xxxu_update_beacon_work_callback(struct work_struct *work)
 	}
 
 	if (priv->fops->sw_tim) {
-		unsigned long linger = 2 * usecs_to_jiffies(vif->bss_conf.beacon_int * 1024);
+		unsigned long interval = usecs_to_jiffies(vif->bss_conf.beacon_int * 1024);
 		bool pending = !skb_queue_empty(&priv->bmc_queue);
+		unsigned int budget, sent = 0;
 		struct sk_buff *skb;
+
+		/* One release per beacon: the rest waits for the next one. */
+		if (pending && priv->tim_bmc &&
+		    time_before(jiffies, priv->bmc_released + interval)) {
+			schedule_delayed_work(&priv->update_beacon_work,
+					      priv->bmc_released + interval - jiffies);
+			return;
+		}
 
 		/*
 		 * Announce the held frames in the beacon first, then hand
@@ -5974,21 +5992,37 @@ static void rtl8xxxu_update_beacon_work_callback(struct work_struct *work)
 		 */
 		priv->tim_bmc = pending ||
 			(priv->tim_bmc &&
-			 time_before(jiffies, priv->bmc_released + linger));
+			 time_before(jiffies, priv->bmc_released + 2 * interval));
 		rtl8xxxu_send_beacon_frame(hw, vif);
 
-		while ((skb = skb_dequeue(&priv->bmc_queue))) {
-			struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
+		/* bitrate is in units of 100 kbit/s */
+		budget = rtl8xxxu_lowest_basic_rate(hw, vif)->bitrate *
+			 (RTL8XXXU_BMC_AIRTIME_US / 80);
+		budget = min_t(unsigned int, budget, RTL8XXXU_BMC_BYTES_MAX);
 
-			/* More follow: stay awake. */
+		while ((skb = skb_peek(&priv->bmc_queue))) {
+			struct ieee80211_hdr *hdr;
+
+			if (sent && sent + skb->len > budget)
+				break;
+			skb = skb_dequeue(&priv->bmc_queue);
+			if (!skb)
+				break;
+			sent += skb->len;
+
+			/* More follow, now or after the next beacon: stay awake. */
+			hdr = (struct ieee80211_hdr *)skb->data;
 			if (!skb_queue_empty(&priv->bmc_queue))
 				hdr->frame_control |= cpu_to_le16(IEEE80211_FCTL_MOREDATA);
 			__rtl8xxxu_tx(hw, NULL, skb, true);
 		}
 		if (pending)
 			priv->bmc_released = jiffies;
-		if (priv->tim_bmc)
-			schedule_delayed_work(&priv->update_beacon_work, linger);
+
+		if (!skb_queue_empty(&priv->bmc_queue))
+			schedule_delayed_work(&priv->update_beacon_work, interval);
+		else if (priv->tim_bmc)
+			schedule_delayed_work(&priv->update_beacon_work, 2 * interval);
 		return;
 	}
 
