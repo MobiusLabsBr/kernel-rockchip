@@ -7013,6 +7013,17 @@ static int rtl8xxxu_add_interface(struct ieee80211_hw *hw,
 		val8 = rtl8xxxu_read8(priv, REG_CCK_CHECK);
 		val8 &= ~BIT_BCN_PORT_SEL;
 		rtl8xxxu_write8(priv, REG_CCK_CHECK, val8);
+
+		if (priv->rtl_chip == RTL8188E) {
+			/*
+			 * The 8188E otherwise clears the beacon queue once the
+			 * beacon was sent (or failed), and beacons stop until
+			 * the next download. As the vendor driver does in AP mode.
+			 */
+			val8 = rtl8xxxu_read8(priv, REG_MBID_NUM);
+			val8 |= MBID_NUM_KEEP_BEACON | BIT(4);
+			rtl8xxxu_write8(priv, REG_MBID_NUM, val8);
+		}
 		break;
 	default:
 		return -EOPNOTSUPP;
