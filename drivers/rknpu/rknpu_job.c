@@ -222,13 +222,22 @@ static inline int rknpu_job_wait(struct rknpu_job *job)
 
 	last_task = job->last_task;
 	if (!last_task) {
+		/*
+		 * The job is freed after this: take it off the todo list of
+		 * every core it was queued on. Those are the cores of its
+		 * mask, not cores 0..use_core_num-1: an auto-scheduled job
+		 * (use_core_num 1) may sit on core 1, and left linked there it
+		 * corrupts the list for the next job queued on that core.
+		 */
 		spin_lock_irqsave(&rknpu_dev->irq_lock, flags);
-		for (i = 0; i < job->use_core_num; i++) {
+		for (i = 0; i < rknpu_dev->config->num_irqs; i++) {
+			if (!(job->args->core_mask & rknpu_core_mask(i)))
+				continue;
 			subcore_data = &rknpu_dev->subcore_datas[i];
 			list_for_each_entry_safe(
 				entry, q, &subcore_data->todo_list, head[i]) {
 				if (entry == job) {
-					list_del(&job->head[i]);
+					list_del_init(&job->head[i]);
 					break;
 				}
 			}
